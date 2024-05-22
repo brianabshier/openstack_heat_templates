@@ -9,19 +9,19 @@ parameters:
   flavor:
     type: string
     description: Flavor of the instance
-    default: m1.medium
+    default: $FLAVOR_NAME
   image:
     type: string
     description: Image to use for the instance
-    default: e44ed30d-e8f8-486a-92e2-f33a0dada737
+    default: $IMAGE_ID
   key_name:
     type: string
     description: Name of the SSH key to use
-    default: brian
+    default: $KEY_NAME
   public_net_id:
     type: string
     description: ID of the public network
-    default: 46b9a179-8b26-40fa-b3ed-0927df4251e0
+    default: $PUBLICNET_ID
 
 resources:
   private_net:
