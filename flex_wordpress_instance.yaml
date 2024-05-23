@@ -1,8 +1,7 @@
 heat_template_version: 2018-03-02
 
 description: >
-  HOT template to deploy a WordPress server on OpenStack. This will create the
-  necessary network infrastructure, security groups, and a VM instance. You will need to log into your server's wp-admin URL to complete the installation
+  HOT template to deploy a WordPress server on OpenStack. This will create the necessary network infrastructure, security groups, and a VM instance. You will need to log into your server's wp-admin URL to complete the installation
 
 parameters:
   private_net_cidr:
