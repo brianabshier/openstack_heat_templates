@@ -1,5 +1,6 @@
-OpenStack Heat Templates
-Brian Abshier 2024
+## OpenStack Heat Templates
+
+<sup>Brian Abshier 2024</sup>
 
 ---
 
