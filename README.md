@@ -39,3 +39,27 @@ Brian Abshier 2024
 - **Apache**: A web service.
 - **MySQL**: A relational database service.
 - **PHP**: An open source scripting language
+
+---
+
+### openstack_wordpress_single_stack.yaml
+
+- **Description:** Deploys a WordPress server on OpenStack with a local mysql database. This will create the necessary network infrastructure, security groups, and a VM instance. You will need to log into your server's wp-admin URL to complete the installation
+
+**Resources Created:**
+
+- **Network**: A private network for the VM.
+- **Subnet**: A subnet within the private network.
+- **Router**: A router to connect the private network to the public network.
+- **Router Interface**: An interface to connect the router to the subnet.
+- **Port**: A network port for the VM.
+- **Security Group**: A security group with rules to allow SSH and ICMP.
+- **Floating IP**: A floating IP to make the VM publicly accessible.
+- **VM Instance**: The VM instance configured with the specified parameters.
+
+**Software Installed:**
+
+- **Apache**: A web service.
+- **MySQL**: A relational database service.
+- **PHP**: An open source scripting language
+- **WordPress**: A web content management system.
