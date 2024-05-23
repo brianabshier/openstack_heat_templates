@@ -4,7 +4,7 @@
 
 ---
 
-### quick_create_heat_template.yaml
+### flex_easy_server.yaml
 
 - **Description:** Basic Heat template that creates a VM with an existing key for authentication, and all the prerequisites on the networking side to make it publicly accessible.
 
@@ -20,7 +20,7 @@
 - **VM Instance**: The VM instance configured with the specified parameters.
 ---
 
-### quick_LAMP_heat_template.yaml
+### flex_lamp_stack.yaml
 
 - **Description:** Provisions a virtual machine with a specified flavor, image, and SSH key, sets up a private network and subnet, configures routing to an external network, and installs a LAMP stack (Linux, Apache, MySQL, PHP) on the instance. It includes security group rules to allow SSH, HTTP, and HTTPS access and assigns a floating IP to the instance for public accessibility.
 
@@ -43,7 +43,7 @@
 
 ---
 
-### openstack_wordpress_single_stack.yaml
+### flex_wordpress_instance.yaml
 
 - **Description:** Deploys a WordPress server on OpenStack with a local mysql database. This will create the necessary network infrastructure, security groups, and a VM instance. You will need to log into your server's wp-admin URL to complete the installation
 
