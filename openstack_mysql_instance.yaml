@@ -1,0 +1,136 @@
+heat_template_version: 2018-03-02
+
+description: >
+  HOT template to deploy a MySQL 8.4 LTS Database Server on OpenStack. The server
+  can optionally be made publicly accessible via a floating IP. The template
+  also allows setting a MySQL username and password and configures MySQL for remote connections.
+
+parameters:
+  private_net_cidr:
+    type: string
+    default: 10.0.0.0/24
+    description: CIDR for the private network
+  private_net_gateway:
+    type: string
+    default: 10.0.0.1
+    description: Gateway for the private network
+  image:
+    type: string
+    default: 'ubuntu-20.04'
+    description: Image to use for the VM instance
+  flavor:
+    type: string
+    default: 'm1.small'
+    description: Flavor to use for the VM instance
+  public_net:
+    type: string
+    description: Name or ID of the public network
+  key_name:
+    type: string
+    description: Name of the key pair to use for the VM instance
+  allocate_floating_ip:
+    type: boolean
+    default: false
+    description: Whether to allocate a floating IP for the VM
+  mysql_username:
+    type: string
+    description: MySQL username
+  mysql_password:
+    type: string
+    description: MySQL password
+    hidden: true
+
+conditions:
+  allocate_floating_ip_condition: { get_param: allocate_floating_ip }
+
+resources:
+  private_network:
+    type: OS::Neutron::Net
+    properties:
+      name: private_network
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: private_subnet
+      network_id: { get_resource: private_network }
+      cidr: { get_param: private_net_cidr }
+      gateway_ip: { get_param: private_net_gateway }
+      dns_nameservers:
+        - 8.8.8.8
+        - 8.8.4.4
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      name: router
+      external_gateway_info:
+        network: { get_param: public_net }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  vm_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_network }
+      security_groups: [{ get_resource: vm_security_group }]
+
+  vm_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: vm_security_group
+      description: Security group for the MySQL VM
+      rules:
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+          remote_ip_prefix: 0.0.0.0/0
+        - protocol: tcp
+          port_range_min: 3306
+          port_range_max: 3306
+          remote_ip_prefix: 0.0.0.0/0
+        - protocol: icmp
+          remote_ip_prefix: 0.0.0.0/0
+
+  floating_ip:
+    type: OS::Neutron::FloatingIP
+    condition: allocate_floating_ip_condition
+    properties:
+      floating_network_id: { get_param: public_net }
+      port_id: { get_resource: vm_port }
+
+  mysql_server:
+    type: OS::Nova::Server
+    properties:
+      name: mysql_server
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: vm_port }
+      user_data_format: RAW
+      user_data: |
+        #!/bin/bash
+        apt-get update
+        apt-get install -y mysql-server
+        sed -i "s/bind-address.*/bind-address = 0.0.0.0/" /etc/mysql/mysql.conf.d/mysqld.cnf
+        systemctl restart mysql
+        mysql -u root <<EOF
+        CREATE USER '{{ get_param "mysql_username" }}'@'%' IDENTIFIED BY '{{ get_param "mysql_password" }}';
+        GRANT ALL PRIVILEGES ON *.* TO '{{ get_param "mysql_username" }}'@'%' WITH GRANT OPTION;
+        FLUSH PRIVILEGES;
+        EOF
+
+outputs:
+  instance_ip:
+    description: IP address of the MySQL server
+    value: { get_attr: [mysql_server, first_address] }
+
+  floating_ip:
+    description: Floating IP address of the MySQL server
+    condition: allocate_floating_ip_condition
+    value: { get_attr: [floating_ip, floating_ip_address] }
