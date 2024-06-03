@@ -64,3 +64,27 @@
 - **MySQL**: A relational database service.
 - **PHP**: An open source scripting language
 - **WordPress**: A web content management system.
+
+---
+
+### flex_dokuwiki_instance.yaml
+
+- **Description:** Deploys a DokuWiki server on OpenStack. This will create the necessary network infrastructure, security groups, and a VM instance. DokuWiki is an open-source wiki software that is simple to use and does not require a database, making it ideal for creating documentation and collaborative content.
+
+**Resources Created:**
+
+- **Network**: A private network for the VM.
+- **Subnet**: A subnet within the private network.
+- **Router**: A router to connect the private network to the public network.
+- **Router Interface**: An interface to connect the router to the subnet.
+- **Port**: A network port for the VM.
+- **Security Group**: A security group with rules to allow SSH and ICMP.
+- **Floating IP**: A floating IP to make the VM publicly accessible.
+- **VM Instance**: The VM instance configured with the specified parameters.
+
+**Software Installed:**
+
+- **Apache**: A web service.
+- **PHP**: An open source scripting language
+- **DokuWiki**: An open-source wiki software
+
