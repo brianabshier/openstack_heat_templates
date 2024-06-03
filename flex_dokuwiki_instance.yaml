@@ -1,0 +1,117 @@
+heat_template_version: 2018-08-31
+
+description: >
+  Basic Heat template to create a VM with existing key for authentication, and all the prerequisites on the networking side to make it publicly accessible. Additionally, it sets up a DokuWiki website which can be accessed by default at http://{ipaddress}/doku.php
+
+parameters:
+  flavor:
+    type: string
+    description: Flavor name of the instance
+    default: $FLAVOR_NAME
+  image:
+    type: string
+    description: Image ID to use for the instance
+    default: $IMAGE_ID
+  key_name:
+    type: string
+    description: Name of the SSH key to use
+    default: $KEYNAME
+  public_net_id:
+    type: string
+    description: ID of the public network
+    default: $PUBLIC_NETWORK_ID
+
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: private_net
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: "192.168.0.0/24"
+      gateway_ip: "192.168.0.1"
+      ip_version: 4
+      dns_nameservers:
+        - "8.8.8.8"
+        - "8.8.4.4"
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net_id }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  instance_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      security_groups: [{ get_resource: instance_security_group }]
+
+  instance_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: instance_security_group
+      description: Security group for the instance
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+
+  floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: instance_port }
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: instance_port }
+      user_data: |
+        #!/bin/bash
+        apt-get update
+        apt-get install -y apache2 php libapache2-mod-php
+        apt-get install -y wget tar
+        cd /var/www/html
+        wget https://download.dokuwiki.org/src/dokuwiki/dokuwiki-stable.tgz
+        tar xvf dokuwiki-stable.tgz --strip-components=1
+        chown -R www-data:www-data /var/www/html
+        cat <<EOF > /etc/apache2/sites-available/000-default.conf
+        <VirtualHost *:80>
+          DocumentRoot /var/www/html
+          <Directory /var/www/html>
+            Options Indexes FollowSymLinks
+            AllowOverride All
+            Require all granted
+          </Directory>
+        </VirtualHost>
+        EOF
+        systemctl restart apache2
+
+outputs:
+  instance_ip:
+    description: IP address of the instance
+    value: { get_attr: [floating_ip, floating_ip_address] }
