@@ -2,6 +2,13 @@
 
 <sup>Brian Abshier 2024</sup>
 
+**Prerequisites:**
+- Public Network UUID
+- SSH Key uploaded to account
+- SSH Key name
+- Flavor ID
+- Image ID
+
 ---
 
 ### flex_easy_server.yaml
