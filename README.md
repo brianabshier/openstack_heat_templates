@@ -118,3 +118,25 @@
 - **MySQL**: A relational database service.
 - **PHP**: An open source scripting language
 - **Drupal**: A web content management system.
+
+---
+
+### flex_minecraft_instance.yaml
+
+- **Description:** Deploys a virtual machine on OpenStack with a specified flavor, image, and SSH key, sets up a private network and subnet, configures routing to an external network, and installs a Minecraft Java server with the latest version. It includes security group rules to allow SSH and Minecraft server access, and assigns a floating IP to the instance for public accessibility.
+
+- **Resources Created:**
+
+- **Network**: A private network for the VM.
+- **Subnet**: A subnet within the private network.
+- **Router**: A router to connect the private network to the public network.
+- **Router Interface**: An interface to connect the router to the subnet.
+- **Port**: A network port for the VM.
+- **Security Group**: A security group with rules to allow SSH and ICMP.
+- **Floating IP**: A floating IP to make the VM publicly accessible.
+- **VM Instance**: The VM instance configured with the specified parameters.
+
+**Software Installed:**
+
+- **Java**: A high-level, class-based, object-oriented programming language.
+- **Minecraft Server**: A java-based Minecraft server.
