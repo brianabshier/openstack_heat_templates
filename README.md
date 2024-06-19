@@ -95,3 +95,26 @@
 - **PHP**: An open source scripting language
 - **DokuWiki**: An open-source wiki software
 
+---
+
+### flex_drupal_instance.yaml
+
+- **Description:** Deploys a virtual machine on OpenStack with a specified flavor, image, and SSH key, sets up a private network and subnet, configures routing to an external network, installs a LAMP stack (Linux, Apache, MySQL, PHP) on the instance, and installs a ready-to-use Drupal 10 installation. It includes security group rules to allow SSH, HTTP, and HTTPS access and assigns a floating IP to the instance for public accessibility. The user can specify the domain name for the Drupal site.
+
+- **Resources Created:**
+
+- **Network**: A private network for the VM.
+- **Subnet**: A subnet within the private network.
+- **Router**: A router to connect the private network to the public network.
+- **Router Interface**: An interface to connect the router to the subnet.
+- **Port**: A network port for the VM.
+- **Security Group**: A security group with rules to allow SSH and ICMP.
+- **Floating IP**: A floating IP to make the VM publicly accessible.
+- **VM Instance**: The VM instance configured with the specified parameters.
+
+**Software Installed:**
+
+- **Apache**: A web service.
+- **MySQL**: A relational database service.
+- **PHP**: An open source scripting language
+- **Drupal**: A web content management system.
