@@ -1,0 +1,148 @@
+heat_template_version: 2018-08-31
+
+description: >
+  This Heat template provisions a virtual machine on OpenStack with a specified flavor, image, and SSH key, sets up a private network and subnet, configures routing to an external network, and installs a Minecraft Java server with the latest version. It includes security group rules to allow SSH and Minecraft server access, and assigns a floating IP to the instance for public accessibility.
+
+parameters:
+  flavor:
+    type: string
+    description: Flavor of the instance
+    default: $FLAVOR_NAME
+  image:
+    type: string
+    description: Image to use for the instance
+    default: $IMAGE_ID
+  key_name:
+    type: string
+    description: Name of the SSH key to use
+    default: $KEY_NAME
+  public_net_id:
+    type: string
+    description: ID of the public network
+    default: $PUBLICNET_ID
+
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: private_net
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: "192.168.0.0/24"
+      gateway_ip: "192.168.0.1"
+      ip_version: 4
+      dns_nameservers:
+        - "8.8.8.8"
+        - "8.8.4.4"
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      name: router
+      external_gateway_info:
+        network: { get_param: public_net_id }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  instance_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      security_groups: [{ get_resource: instance_security_group }]
+
+  instance_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: instance_security_group
+      description: Security group for the instance
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 25565
+          port_range_max: 25565
+
+  floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: instance_port }
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: instance_port }
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            # Update and install necessary packages
+            apt-get update -y
+            apt-get install -y openjdk-17-jre-headless wget screen
+
+            # Create a new user for the Minecraft server
+            useradd -m -r -d /opt/minecraft minecraft
+
+            # Download the latest Minecraft server
+            su - minecraft -c "wget -O /opt/minecraft/minecraft_server.jar https://launcher.mojang.com/v1/objects/$(curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json | jq -r '.latest.release')/server.jar"
+
+            # Accept the EULA
+            echo "eula=true" > /opt/minecraft/eula.txt
+
+            # Create a systemd service for the Minecraft server
+            cat <<EOF > /etc/systemd/system/minecraft.service
+            [Unit]
+            Description=Minecraft Server
+            After=network.target
+
+            [Service]
+            User=minecraft
+            Nice=5
+            KillMode=none
+            SuccessExitStatus=0 1
+            ProtectHome=true
+            ProtectSystem=full
+            PrivateDevices=true
+            NoNewPrivileges=true
+            WorkingDirectory=/opt/minecraft
+            ExecStart=/usr/bin/java -Xmx1024M -Xms1024M -jar minecraft_server.jar nogui
+            ExecStop=/bin/kill -SIGINT \$MAINPID
+            Restart=on-failure
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            # Reload systemd, enable and start the Minecraft service
+            systemctl daemon-reload
+            systemctl enable minecraft
+            systemctl start minecraft
+          params:
+            "$FLAVOR_NAME": { get_param: flavor }
+            "$IMAGE_ID": { get_param: image }
+            "$KEY_NAME": { get_param: key_name }
+            "$PUBLICNET_ID": { get_param: public_net_id }
+
+outputs:
+  instance_ip:
+    description: IP address of the instance
+    value: { get_attr: [floating_ip, floating_ip_address] }
