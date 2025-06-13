@@ -71,6 +71,7 @@
 - **MySQL**: A relational database service.
 - **PHP**: An open source scripting language
 - **WordPress**: A web content management system.
+- **SSL Cert***: Automates SSL installation for your domain with LetsEncrypt.
 
 ---
 
