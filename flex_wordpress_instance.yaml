@@ -1,96 +1,72 @@
-heat_template_version: 2018-03-02
-
+heat_template_version: '2018-03-02'
 description: >
-  HOT template to deploy a WordPress server on OpenStack. This will create the necessary network infrastructure, security groups, and a VM instance. You will need to log into your server's wp-admin URL to complete the installation
+  HOT template to deploy a WordPress server with automatic HTTPS using Certbot,
+  installed via a systemd service that retries DNS resolution post-boot.
 
 parameters:
   private_net_cidr:
     type: string
     default: 10.0.0.0/24
-    description: CIDR for the private network
   private_net_gateway:
     type: string
     default: 10.0.0.1
-    description: Gateway for the private network
   image:
     type: string
-    default: 'ubuntu-20.04'
-    description: Image to use for the VM instance
+    default: ubuntu-20.04
   flavor:
     type: string
-    default: 'm1.small'
-    description: Flavor to use for the VM instance
+    default: m1.small
   public_net:
     type: string
-    default: 46b9a179-8b26-40fa-b3ed-0927df4251e0
-    description: Name or ID of the public network
+    description: ID of the public network
   key_name:
     type: string
     description: Name of the key pair to use for the VM instance
+  site_domain:
+    type: string
+    description: The full domain name to be used (e.g. wpsite.example.com)
+  admin_email:
+    type: string
+    description: Email address for Let's Encrypt registration
 
 resources:
   private_network:
     type: OS::Neutron::Net
-    properties:
-      name: private_network
-
   private_subnet:
     type: OS::Neutron::Subnet
     properties:
-      name: private_subnet
       network_id: { get_resource: private_network }
       cidr: { get_param: private_net_cidr }
       gateway_ip: { get_param: private_net_gateway }
-      dns_nameservers:
-        - 8.8.8.8
-        - 8.8.4.4
-
+      dns_nameservers: [8.8.8.8, 8.8.4.4]
   router:
     type: OS::Neutron::Router
     properties:
-      name: router
       external_gateway_info:
         network: { get_param: public_net }
-
   router_interface:
     type: OS::Neutron::RouterInterface
     properties:
       router_id: { get_resource: router }
       subnet_id: { get_resource: private_subnet }
-
+  vm_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      rules:
+        - { protocol: tcp, port_range_min: 22, port_range_max: 22, remote_ip_prefix: 0.0.0.0/0 }
+        - { protocol: tcp, port_range_min: 80, port_range_max: 80, remote_ip_prefix: 0.0.0.0/0 }
+        - { protocol: tcp, port_range_min: 443, port_range_max: 443, remote_ip_prefix: 0.0.0.0/0 }
+        - { protocol: icmp, remote_ip_prefix: 0.0.0.0/0 }
   vm_port:
     type: OS::Neutron::Port
     properties:
       network_id: { get_resource: private_network }
-      security_groups: [{ get_resource: vm_security_group }]
-      
-  vm_security_group:
-    type: OS::Neutron::SecurityGroup
-    properties:
-      name: vm_security_group
-      description: Security group for the WordPress VM
-      rules:
-        - protocol: tcp
-          port_range_min: 22
-          port_range_max: 22
-          remote_ip_prefix: 0.0.0.0/0
-        - protocol: tcp
-          port_range_min: 80
-          port_range_max: 80
-          remote_ip_prefix: 0.0.0.0/0
-        - protocol: tcp
-          port_range_min: 443
-          port_range_max: 443
-          remote_ip_prefix: 0.0.0.0/0
-        - protocol: icmp
-          remote_ip_prefix: 0.0.0.0/0
-
+      security_groups: [ { get_resource: vm_security_group } ]
   floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
       floating_network_id: { get_param: public_net }
       port_id: { get_resource: vm_port }
-
   wordpress_server:
     type: OS::Nova::Server
     properties:
@@ -101,29 +77,70 @@ resources:
       networks:
         - port: { get_resource: vm_port }
       user_data_format: RAW
-      user_data: |
-        #!/bin/bash
-        apt-get update
-        apt-get install -y apache2 mysql-server php php-mysql libapache2-mod-php
-        mysql -e "CREATE DATABASE wordpress;"
-        mysql -e "CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'password';"
-        mysql -e "GRANT ALL PRIVILEGES ON wordpress.* TO 'wpuser'@'localhost';"
-        mysql -e "FLUSH PRIVILEGES;"
-        cd /var/www/html
-        wget https://wordpress.org/latest.tar.gz
-        tar -xvzf latest.tar.gz
-        rm latest.tar.gz
-        mv wordpress/* .
-        rmdir wordpress
-        chown -R www-data:www-data /var/www/html
-        chmod -R 755 /var/www/html
-        cp wp-config-sample.php wp-config.php
-        sed -i "s/database_name_here/wordpress/g" wp-config.php
-        sed -i "s/username_here/wpuser/g" wp-config.php
-        sed -i "s/password_here/password/g" wp-config.php
-        systemctl restart apache2
+      user_data:
+        str_replace:
+          params:
+            __DOMAIN__: { get_param: site_domain }
+            __EMAIL__: { get_param: admin_email }
+          template: |
+            #!/bin/bash
+            apt-get update
+            apt-get install -y apache2 mysql-server php php-mysql libapache2-mod-php certbot python3-certbot-apache
+
+            mysql -e "CREATE DATABASE wordpress;"
+            mysql -e "CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'password';"
+            mysql -e "GRANT ALL PRIVILEGES ON wordpress.* TO 'wpuser'@'localhost';"
+            mysql -e "FLUSH PRIVILEGES;"
+
+            cd /var/www/html
+            wget https://wordpress.org/latest.tar.gz
+            tar -xvzf latest.tar.gz
+            rm latest.tar.gz
+            mv wordpress/* .
+            rmdir wordpress
+            cp wp-config-sample.php wp-config.php
+            sed -i "s/database_name_here/wordpress/" wp-config.php
+            sed -i "s/username_here/wpuser/" wp-config.php
+            sed -i "s/password_here/password/" wp-config.php
+            chown -R www-data:www-data /var/www/html
+            chmod -R 755 /var/www/html
+
+            cat <<EOF > /usr/local/bin/wait-for-dns-certbot.sh
+            #!/bin/bash
+            IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+            for i in {1..180}; do
+              RESOLVED=$(getent ahosts __DOMAIN__ | awk '{print $1; exit}')
+              if [ "$RESOLVED" == "$IP" ]; then
+                certbot --apache --non-interactive --agree-tos --email __EMAIL__ -d __DOMAIN__
+                systemctl reload apache2
+                exit 0
+              fi
+              sleep 30
+            done
+            echo "DNS failed to resolve to correct IP after waiting."
+            EOF
+
+            chmod +x /usr/local/bin/wait-for-dns-certbot.sh
+            cat <<EOF > /etc/systemd/system/certbot-wait.service
+            [Unit]
+            Description=Wait for DNS then run Certbot
+            After=network.target
+            [Service]
+            ExecStart=/usr/local/bin/wait-for-dns-certbot.sh
+            Type=oneshot
+            RemainAfterExit=true
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            systemctl daemon-reexec
+            systemctl daemon-reload
+            systemctl enable certbot-wait.service
+            systemctl start certbot-wait.service
+
+            systemctl restart apache2
 
 outputs:
   instance_ip:
     description: IP address of the WordPress server
-    value: { get_attr: [floating_ip, floating_ip_address] }
+    value: { get_attr: [ floating_ip, floating_ip_address ] }
