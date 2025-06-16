@@ -1,67 +1,80 @@
-heat_template_version: 2018-08-31
-
+heat_template_version: '2018-08-31'
 description: >
-  This Heat template provisions a virtual machine on OpenStack with a specified flavor, image, and SSH key, sets up a private network and subnet, configures routing to an external network, and installs a Minecraft Java server with the latest version. It includes security group rules to allow SSH and Minecraft server access, and assigns a floating IP to the instance for public accessibility.
-
+  Provisions a virtual machine on OpenStack to run a Minecraft Bedrock server.
+  Includes network setup, floating IP assignment, and customizable
+  server.properties values.
 parameters:
   flavor:
     type: string
     description: Flavor of the instance
-    default: $FLAVOR_NAME
+    default: gp.5.4.4
   image:
     type: string
     description: Image to use for the instance
-    default: $IMAGE_ID
+    default: Ubuntu 20.04
   key_name:
     type: string
-    description: Name of the SSH key to use
-    default: $KEY_NAME
+    description: SSH key name to access the instance
+    default: default-key
   public_net_id:
     type: string
     description: ID of the public network
-    default: $PUBLICNET_ID
-
+    default: PUBLICNET
+  level_name:
+    type: string
+    default: Bedrock_World
+  level_seed:
+    type: string
+    default: ''
+  level_type:
+    type: string
+    default: DEFAULT
+  difficulty:
+    type: string
+    default: easy
+  gamemode:
+    type: string
+    default: survival
+  max_players:
+    type: number
+    default: 10
+  allow_cheats:
+    type: boolean
+    default: false
 resources:
   private_net:
     type: OS::Neutron::Net
     properties:
       name: private_net
-
   private_subnet:
     type: OS::Neutron::Subnet
     properties:
-      network_id: { get_resource: private_net }
-      cidr: "192.168.0.0/24"
-      gateway_ip: "192.168.0.1"
+      network_id:
+        get_resource: private_net
+      cidr: 192.168.0.0/24
+      gateway_ip: 192.168.0.1
       ip_version: 4
       dns_nameservers:
-        - "8.8.8.8"
-        - "8.8.4.4"
-
+        - 8.8.8.8
+        - 8.8.4.4
   router:
     type: OS::Neutron::Router
     properties:
       name: router
       external_gateway_info:
-        network: { get_param: public_net_id }
-
+        network:
+          get_param: public_net_id
   router_interface:
     type: OS::Neutron::RouterInterface
     properties:
-      router_id: { get_resource: router }
-      subnet_id: { get_resource: private_subnet }
-
-  instance_port:
-    type: OS::Neutron::Port
-    properties:
-      network_id: { get_resource: private_net }
-      security_groups: [{ get_resource: instance_security_group }]
-
+      router_id:
+        get_resource: router
+      subnet_id:
+        get_resource: private_subnet
   instance_security_group:
     type: OS::Neutron::SecurityGroup
     properties:
-      name: instance_security_group
-      description: Security group for the instance
+      name: bedrock_security_group
       rules:
         - direction: ingress
           ethertype: IPv4
@@ -70,79 +83,141 @@ resources:
           port_range_max: 22
         - direction: ingress
           ethertype: IPv4
-          protocol: icmp
-        - direction: ingress
+          protocol: udp
+          port_range_min: 19132
+          port_range_max: 19133
+        - direction: egress
           ethertype: IPv4
-          protocol: tcp
-          port_range_min: 25565
-          port_range_max: 25565
-
+  instance_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id:
+        get_resource: private_net
+      security_groups:
+        - get_resource: instance_security_group
   floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
-      floating_network_id: { get_param: public_net_id }
-      port_id: { get_resource: instance_port }
-
+      floating_network_id:
+        get_param: public_net_id
+      port_id:
+        get_resource: instance_port
   instance:
     type: OS::Nova::Server
     properties:
-      flavor: { get_param: flavor }
-      image: { get_param: image }
-      key_name: { get_param: key_name }
+      flavor:
+        get_param: flavor
+      image:
+        get_param: image
+      key_name:
+        get_param: key_name
       networks:
-        - port: { get_resource: instance_port }
+        - port:
+            get_resource: instance_port
       user_data:
         str_replace:
-          template: |
+          template: >
             #!/bin/bash
-            # Update and install necessary packages
+
             apt-get update -y
-            apt-get install -y openjdk-17-jre-headless wget screen
 
-            # Create a new user for the Minecraft server
-            useradd -m -r -d /opt/minecraft minecraft
+            apt-get install -y curl unzip libssl1.1 screen
 
-            # Download the latest Minecraft server
-            su - minecraft -c "wget -O /opt/minecraft/minecraft_server.jar https://launcher.mojang.com/v1/objects/$(curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json | jq -r '.latest.release')/server.jar"
 
-            # Accept the EULA
-            echo "eula=true" > /opt/minecraft/eula.txt
+            useradd -m -r -d /opt/bedrock bedrock
 
-            # Create a systemd service for the Minecraft server
-            cat <<EOF > /etc/systemd/system/minecraft.service
-            [Unit]
-            Description=Minecraft Server
-            After=network.target
 
-            [Service]
-            User=minecraft
-            Nice=5
-            KillMode=none
-            SuccessExitStatus=0 1
-            ProtectHome=true
-            ProtectSystem=full
-            PrivateDevices=true
-            NoNewPrivileges=true
-            WorkingDirectory=/opt/minecraft
-            ExecStart=/usr/bin/java -Xmx1024M -Xms1024M -jar minecraft_server.jar nogui
-            ExecStop=/bin/kill -SIGINT \$MAINPID
-            Restart=on-failure
+            mkdir -p /opt/bedrock/server
 
-            [Install]
-            WantedBy=multi-user.target
+            chown bedrock:bedrock /opt/bedrock/server
+
+
+            sudo -u bedrock bash <<EOF
+
+            cd /opt/bedrock/server
+
+            curl -sSL -o bedrock.zip
+            https://04570bd530fbf4c6ec9a-a5cff7ad7a8d83cb3fa8718d4931d0d2.ssl.cf1.rackcdn.com/bedrock-server-1.21.84.1.zip
+
+            unzip -o bedrock.zip
+
+            rm bedrock.zip
+
+            chmod +x bedrock_server
+
+
+            cat > server.properties <<EOP
+
+            level-name=${level_name}
+
+            level-seed=${level_seed}
+
+            level-type=${level_type}
+
+            difficulty=${difficulty}
+
+            gamemode=${gamemode}
+
+            max-players=${max_players}
+
+            allow-cheats=${allow_cheats}
+
+            EOP
+
             EOF
 
-            # Reload systemd, enable and start the Minecraft service
-            systemctl daemon-reload
-            systemctl enable minecraft
-            systemctl start minecraft
-          params:
-            "$FLAVOR_NAME": { get_param: flavor }
-            "$IMAGE_ID": { get_param: image }
-            "$KEY_NAME": { get_param: key_name }
-            "$PUBLICNET_ID": { get_param: public_net_id }
 
+            cat <<EOL > /etc/systemd/system/bedrock.service
+
+            [Unit]
+
+            Description=Minecraft Bedrock Server
+
+            After=network.target
+
+
+            [Service]
+
+            User=bedrock
+
+            WorkingDirectory=/opt/bedrock/server
+
+            ExecStart=/opt/bedrock/server/bedrock_server
+
+            Restart=on-failure
+
+
+            [Install]
+
+            WantedBy=multi-user.target
+
+            EOL
+
+
+            systemctl daemon-reload
+
+            systemctl enable bedrock
+
+            systemctl start bedrock
+          params:
+            ${level_name}:
+              get_param: level_name
+            ${level_seed}:
+              get_param: level_seed
+            ${level_type}:
+              get_param: level_type
+            ${difficulty}:
+              get_param: difficulty
+            ${gamemode}:
+              get_param: gamemode
+            ${max_players}:
+              get_param: max_players
+            ${allow_cheats}:
+              get_param: allow_cheats
 outputs:
   instance_ip:
-    description: IP address of the instance
-    value: { get_attr: [floating_ip, floating_ip_address] }
+    description: Floating IP of the Minecraft Bedrock server instance
+    value:
+      get_attr:
+        - floating_ip
+        - floating_ip_address
