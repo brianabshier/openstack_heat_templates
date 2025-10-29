@@ -1,0 +1,190 @@
+heat_template_version: 2018-08-31
+
+description: >
+  Deploys a Debian 12 VM on OpenStack running a Minecraft Bedrock Server.
+  Includes dynamic server configuration options, nightly restarts, and customizable download URL.
+
+parameters:
+  flavor:
+    type: string
+    description: Flavor for the instance
+    default: m1.small
+  image:
+    type: string
+    description: Debian 12 image name or ID
+    default: debian-12
+  key_name:
+    type: string
+    description: SSH key name to access the instance
+    default: default-key
+  public_net_id:
+    type: string
+    description: ID of the public network
+    default: public-net-id
+
+  bedrock_download_url:
+    type: string
+    description: >
+      URL to the Bedrock Dedicated Server .zip file.
+      Example: https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.21.84.1.zip
+    default: https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.21.84.1.zip
+
+  restart_hour:
+    type: number
+    description: Hour (0–23) for the nightly server restart (system time)
+    default: 2
+
+  level_name:
+    type: string
+    description: World name
+    default: Bedrock_World
+  level_seed:
+    type: string
+    description: World seed (leave empty for random)
+    default: ""
+  gamemode:
+    type: string
+    description: Game mode (survival, creative, adventure)
+    default: survival
+  difficulty:
+    type: string
+    description: Difficulty (peaceful, easy, normal, hard)
+    default: easy
+  max_players:
+    type: number
+    description: Maximum number of players
+    default: 10
+  allow_cheats:
+    type: boolean
+    description: Allow cheats (true/false)
+    default: true
+
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: bedrock_net
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: 192.168.10.0/24
+      gateway_ip: 192.168.10.1
+      ip_version: 4
+      dns_nameservers: ["8.8.8.8"]
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      name: bedrock_router
+      external_gateway_info:
+        network: { get_param: public_net_id }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: bedrock_sg
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          ethertype: IPv4
+          protocol: udp
+          port_range_min: 19132
+          port_range_max: 19133
+        - direction: egress
+          ethertype: IPv4
+
+  port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      security_groups: [ { get_resource: security_group } ]
+
+  floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: port }
+
+  bedrock_instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: port }
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -e
+
+            # Install dependencies
+            apt-get update -y
+            apt-get install -y unzip curl screen cron
+
+            # Setup directories
+            mkdir -p /opt/bedrock/server /opt/bedrock/worlds_backup
+            cd /opt/bedrock/server
+
+            # Download and extract server
+            echo "Downloading Minecraft Bedrock Server..."
+            curl -o bedrock_server.zip ${bedrock_download_url}
+            unzip -o bedrock_server.zip
+            rm bedrock_server.zip
+            chmod +x bedrock_server
+
+            # Write server.properties
+            cat > server.properties <<EOF
+            level-name=${level_name}
+            level-seed=${level_seed}
+            gamemode=${gamemode}
+            difficulty=${difficulty}
+            max-players=${max_players}
+            allow-cheats=${allow_cheats}
+            EOF
+
+            # Create restart script
+            cat > /opt/bedrock/restart.sh <<EOR
+            #!/bin/bash
+            screen -S minecraft -X stuff "say Server restarting in 60 seconds!$(printf '\\r')"
+            sleep 60
+            screen -S minecraft -X stuff "stop$(printf '\\r')"
+            sleep 10
+            cd /opt/bedrock/server
+            screen -dmS minecraft ./bedrock_server
+            EOR
+            chmod +x /opt/bedrock/restart.sh
+
+            # Schedule nightly restart
+            echo "0 ${restart_hour} * * * /opt/bedrock/restart.sh >> /opt/bedrock/restart.log 2>&1" | crontab -
+
+            # Start server in a detached screen
+            cd /opt/bedrock/server
+            screen -dmS minecraft ./bedrock_server
+          params:
+            "${bedrock_download_url}": { get_param: bedrock_download_url }
+            "${level_name}": { get_param: level_name }
+            "${level_seed}": { get_param: level_seed }
+            "${gamemode}": { get_param: gamemode }
+            "${difficulty}": { get_param: difficulty }
+            "${max_players}": { get_param: max_players }
+            "${allow_cheats}": { get_param: allow_cheats }
+            "${restart_hour}": { get_param: restart_hour }
+
+outputs:
+  instance_ip:
+    description: Floating IP of the Minecraft Bedrock Server
+    value: { get_attr: [floating_ip, floating_ip_address] }
