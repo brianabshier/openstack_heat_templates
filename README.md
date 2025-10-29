@@ -141,3 +141,35 @@
 
 - **Java**: A high-level, class-based, object-oriented programming language.
 - **Minecraft Server**: A java-based Minecraft server.
+
+---
+
+### bedrock_stack.yaml
+
+- **Description:** A fully automated, parameterized Bedrock Server deployable straight from OpenStack Skyline or the CLI — with automatic restarts, easy updates, and configuration controlled from the template itself.
+
+- **Network**: A private network for the VM.
+- **Subnet**: A subnet within the private network.
+- **Router**: A router to connect the private network to the public network.
+- **Router Interface**: An interface to connect the router to the subnet.
+- **Port**: A network port for the VM.
+- **Security Group**: A security group with rules to allow SSH and Minecraft Ports.
+- **Floating IP**: A floating IP to make the VM publicly accessible.
+- **VM Instance**: The VM instance configured with the specified parameters.
+
+- **Software Installed:**
+- **User-defined variables during stack creation**
+- bedrock_download_url (The URL with the zip file for the Bedrock Server)
+- level-name, seed, gamemode, difficulty, max-players, allow-cheats
+- restart_hour for nightly restarts
+
+- **Automatic Setup**
+- Installs Bedrock server
+- Launches in screen session as debian
+- Nightly restart cron job
+
+- **Directory Layout**
+
+/opt/bedrock/server/         ← Main server files
+/opt/bedrock/worlds_backup/  ← Optional backup area
+/opt/bedrock/restart.sh      ← Restart script
